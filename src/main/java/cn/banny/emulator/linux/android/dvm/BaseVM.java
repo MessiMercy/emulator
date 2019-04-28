@@ -1,9 +1,9 @@
 package cn.banny.emulator.linux.android.dvm;
 
 import cn.banny.emulator.Emulator;
-import cn.banny.emulator.LibraryFile;
-import cn.banny.emulator.linux.Module;
+import cn.banny.emulator.Module;
 import cn.banny.emulator.linux.android.ElfLibraryFile;
+import cn.banny.emulator.spi.LibraryFile;
 import net.dongliu.apk.parser.ApkFile;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.logging.Log;
@@ -25,6 +25,8 @@ public abstract class BaseVM implements VM {
     final Map<Long, DvmClass> classMap = new HashMap<>();
 
     Jni jni;
+
+    DvmObject<?> jthrowable;
 
     @Override
     public final void setJni(Jni jni) {
@@ -130,6 +132,10 @@ public abstract class BaseVM implements VM {
         public byte[] readToByteArray() {
             return soData;
         }
+        @Override
+        public String getPath() {
+            return "/data/app-lib/" + packageName + "-1";
+        }
     }
 
     abstract byte[] findLibrary(ApkFile apkFile, String soName) throws IOException;
@@ -184,5 +190,10 @@ public abstract class BaseVM implements VM {
                 + toMB(usage.getUsed()) + ", committed="
                 + toMB(usage.getCommitted()) + ", max="
                 + toMB(usage.getMax());
+    }
+
+    @Override
+    public void callJNI_OnLoad(Emulator emulator, Module module) throws IOException {
+        new DalvikModule(this, module).callJNI_OnLoad(emulator);
     }
 }

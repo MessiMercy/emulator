@@ -3,16 +3,16 @@ package com.sun.jna;
 import cn.banny.auxiliary.Inspector;
 import cn.banny.emulator.Emulator;
 import cn.banny.emulator.LibraryResolver;
+import cn.banny.emulator.Module;
+import cn.banny.emulator.Symbol;
 import cn.banny.emulator.arm.ARMEmulator;
 import cn.banny.emulator.arm.HookStatus;
 import cn.banny.emulator.hook.ReplaceCallback;
 import cn.banny.emulator.hook.hookzz.*;
 import cn.banny.emulator.hook.whale.IWhale;
-import cn.banny.emulator.hook.xhook.IxHook;
 import cn.banny.emulator.hook.whale.Whale;
-import cn.banny.emulator.hook.xhook.xHookImpl;
-import cn.banny.emulator.linux.Module;
-import cn.banny.emulator.linux.Symbol;
+import cn.banny.emulator.hook.xhook.IxHook;
+import cn.banny.emulator.hook.xhook.XHookImpl;
 import cn.banny.emulator.linux.android.AndroidARMEmulator;
 import cn.banny.emulator.linux.android.AndroidResolver;
 import cn.banny.emulator.linux.android.dvm.*;
@@ -23,7 +23,6 @@ import unicorn.Unicorn;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 
 public class JniDispatch32 extends AbstractJni {
 
@@ -35,7 +34,7 @@ public class JniDispatch32 extends AbstractJni {
         return new AndroidARMEmulator("com.sun.jna");
     }
 
-    private ARMEmulator emulator;
+    private final ARMEmulator emulator;
     private final VM vm;
     private final Module module;
 
@@ -70,10 +69,11 @@ public class JniDispatch32 extends AbstractJni {
     }
 
     private void test() throws IOException {
-        IxHook xHook = xHookImpl.getInstance(emulator);
+        IxHook xHook = XHookImpl.getInstance(emulator);
         xHook.register("libjnidispatch.so", "malloc", new ReplaceCallback() {
             @Override
-            public HookStatus onCall(Unicorn unicorn, long originFunction) {
+            public HookStatus onCall(Emulator emulator, long originFunction) {
+                Unicorn unicorn = emulator.getUnicorn();
                 int size = ((Number) unicorn.reg_read(ArmConst.UC_ARM_REG_R0)).intValue();
                 System.out.println("malloc=" + size);
                 return HookStatus.RET(unicorn, originFunction);
@@ -85,9 +85,9 @@ public class JniDispatch32 extends AbstractJni {
         Symbol free = emulator.getMemory().findModule("libc.so").findSymbolByName("free");
         whale.WInlineHookFunction(free, new ReplaceCallback() {
             @Override
-            public HookStatus onCall(Unicorn unicorn, long originFunction) {
+            public HookStatus onCall(Emulator emulator, long originFunction) {
                 System.out.println("WInlineHookFunction free=" + UnicornPointer.register(emulator, ArmConst.UC_ARM_REG_R0));
-                return HookStatus.RET(unicorn, originFunction);
+                return HookStatus.RET(emulator.getUnicorn(), originFunction);
             }
         });
 
@@ -104,7 +104,7 @@ public class JniDispatch32 extends AbstractJni {
         Symbol newJavaString = module.findSymbolByName("newJavaString");
         hookZz.wrap(newJavaString, new WrapCallback<Arm32RegisterContext>() {
             @Override
-            public void preCall(Unicorn u, Arm32RegisterContext ctx, HookEntryInfo info) {
+            public void preCall(Emulator emulator, Arm32RegisterContext ctx, HookEntryInfo info) {
                 Pointer value = ctx.getR1Pointer();
                 Pointer encoding = ctx.getR2Pointer();
                 System.out.println("newJavaString value=" + value.getString(0) + ", encoding=" + encoding.getString(0));
@@ -129,60 +129,13 @@ public class JniDispatch32 extends AbstractJni {
     }
 
     @Override
-    public DvmObject callStaticObjectMethod(VM vm, DvmClass dvmClass, String signature, String methodName, String args, Emulator emulator) {
+    public DvmObject callStaticObjectMethod(VM vm, DvmClass dvmClass, String signature, String methodName, String args, VarArg varArg) {
         if ("java/lang/System->getProperty(Ljava/lang/String;)Ljava/lang/String;".equals(signature)) {
-            UnicornPointer pointer = UnicornPointer.register(emulator, ArmConst.UC_ARM_REG_R3);
-            StringObject string = vm.getObject(pointer.toUIntPeer());
+            StringObject string = varArg.getObject(0);
             return new StringObject(vm, System.getProperty(string.getValue()));
         }
 
-        return super.callStaticObjectMethod(vm, dvmClass, signature, methodName, args, emulator);
-    }
-
-    @Override
-    public DvmObject newObject(DvmClass clazz, String signature, Emulator emulator) {
-        switch (signature) {
-            case "java/lang/String-><init>([B)V":
-                UnicornPointer arrayPointer = UnicornPointer.register(emulator, ArmConst.UC_ARM_REG_R3);
-                ByteArray array = vm.getObject(arrayPointer.toUIntPeer());
-                return new StringObject(vm, new String(array.getValue()));
-            case "java/lang/String-><init>([BLjava/lang/String;)V":
-                arrayPointer = UnicornPointer.register(emulator, ArmConst.UC_ARM_REG_R3);
-                array = vm.getObject(arrayPointer.toUIntPeer());
-                UnicornPointer pointer = UnicornPointer.register(emulator, ArmConst.UC_ARM_REG_SP).getPointer(0);
-                StringObject string = vm.getObject(pointer.toUIntPeer());
-                try {
-                    return new StringObject(vm, new String(array.getValue(), string.getValue()));
-                } catch (UnsupportedEncodingException e) {
-                    throw new IllegalStateException(e);
-                }
-        }
-        return super.newObject(clazz, signature, emulator);
-    }
-
-    @Override
-    public DvmObject getStaticObjectField(VM vm, DvmClass dvmClass, String signature) {
-        switch (signature) {
-            case "java/lang/Void->TYPE:Ljava/lang/Class;":
-                return vm.resolveClass("java/lang/Void");
-            case "java/lang/Boolean->TYPE:Ljava/lang/Class;":
-                return vm.resolveClass("java/lang/Boolean");
-            case "java/lang/Byte->TYPE:Ljava/lang/Class;":
-                return vm.resolveClass("java/lang/Byte");
-            case "java/lang/Character->TYPE:Ljava/lang/Class;":
-                return vm.resolveClass("java/lang/Character");
-            case "java/lang/Short->TYPE:Ljava/lang/Class;":
-                return vm.resolveClass("java/lang/Short");
-            case "java/lang/Integer->TYPE:Ljava/lang/Class;":
-                return vm.resolveClass("java/lang/Integer");
-            case "java/lang/Long->TYPE:Ljava/lang/Class;":
-                return vm.resolveClass("java/lang/Long");
-            case "java/lang/Float->TYPE:Ljava/lang/Class;":
-                return vm.resolveClass("java/lang/Float");
-            case "java/lang/Double->TYPE:Ljava/lang/Class;":
-                return vm.resolveClass("java/lang/Double");
-        }
-        return super.getStaticObjectField(vm, dvmClass, signature);
+        return super.callStaticObjectMethod(vm, dvmClass, signature, methodName, args, varArg);
     }
 
 }

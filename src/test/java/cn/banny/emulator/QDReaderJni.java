@@ -5,12 +5,11 @@ import cn.banny.emulator.arm.ARMEmulator;
 import cn.banny.emulator.arm.HookStatus;
 import cn.banny.emulator.hook.ReplaceCallback;
 import cn.banny.emulator.hook.xhook.IxHook;
-import cn.banny.emulator.hook.xhook.xHookImpl;
+import cn.banny.emulator.hook.xhook.XHookImpl;
 import cn.banny.emulator.linux.android.AndroidARMEmulator;
 import cn.banny.emulator.linux.android.AndroidResolver;
 import cn.banny.emulator.linux.android.dvm.*;
 import cn.banny.emulator.memory.Memory;
-import unicorn.Unicorn;
 
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
@@ -30,7 +29,7 @@ public class QDReaderJni extends AbstractJni {
         return new AndroidARMEmulator("a.d.c");
     }
 
-    private ARMEmulator emulator;
+    private final ARMEmulator emulator;
     private final VM vm;
 
     private final DvmClass d;
@@ -63,11 +62,11 @@ public class QDReaderJni extends AbstractJni {
     }
 
     private void c() throws Exception {
-        IxHook xHook = xHookImpl.getInstance(emulator);
+        IxHook xHook = XHookImpl.getInstance(emulator);
         xHook.register("libd-lib.so", "free", new ReplaceCallback() {
             @Override
-            public HookStatus onCall(Unicorn unicorn, long originFunction) {
-                return HookStatus.LR(unicorn, 0);
+            public HookStatus onCall(Emulator emulator, long originFunction) {
+                return HookStatus.LR(emulator.getUnicorn(), 0);
             }
         });
         xHook.refresh();

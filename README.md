@@ -7,17 +7,25 @@ This is an educational project to learn more about the ELF file format and ARM a
 
 ## Usage
 
+VM options: -Djava.library.path=prebuilt/os -Djna.library.path=prebuilt/os  
+Where os may: linux64, win32, win64, osx64
+
 Simple tests under src/test directory
-- [src/test/java/com/bytedance/frameworks/core/encrypt/TTEncrypt.java](https://github.com/zhkl0228/emulator/blob/master/src/test/java/com/bytedance/frameworks/core/encrypt/TTEncrypt.java)
-- ![](assets/TTEncrypt.gif)
-- [src/test/java/com/sun/jna/JniDispatch32.java](https://github.com/zhkl0228/emulator/blob/master/src/test/java/com/sun/jna/JniDispatch32.java)
-- ![](assets/JniDispatch32.gif)
-- [src/test/java/com/sun/jna/JniDispatch64.java](https://github.com/zhkl0228/emulator/blob/master/src/test/java/com/sun/jna/JniDispatch64.java)
-- ![](assets/JniDispatch64.gif)
-- [src/test/java/org/telegram/messenger/Utilities32.java](https://github.com/zhkl0228/emulator/blob/master/src/test/java/org/telegram/messenger/Utilities32.java)
-- ![](assets/Utilities32.gif)
-- [src/test/java/org/telegram/messenger/Utilities64.java](https://github.com/zhkl0228/emulator/blob/master/src/test/java/org/telegram/messenger/Utilities64.java)
-- ![](assets/Utilities64.gif)
+- [src/test/java/com/bytedance/frameworks/core/encrypt/TTEncrypt.java](https://github.com/zhkl0228/emulator/blob/master/src/test/java/com/bytedance/frameworks/core/encrypt/TTEncrypt.java)  
+
+![](assets/TTEncrypt.gif)
+***
+- [src/test/java/com/sun/jna/JniDispatch32.java](https://github.com/zhkl0228/emulator/blob/master/src/test/java/com/sun/jna/JniDispatch32.java)  
+![](assets/JniDispatch32.gif)
+***
+- [src/test/java/com/sun/jna/JniDispatch64.java](https://github.com/zhkl0228/emulator/blob/master/src/test/java/com/sun/jna/JniDispatch64.java)  
+![](assets/JniDispatch64.gif)
+***
+- [src/test/java/org/telegram/messenger/Utilities32.java](https://github.com/zhkl0228/emulator/blob/master/src/test/java/org/telegram/messenger/Utilities32.java)  
+![](assets/Utilities32.gif)
+***
+- [src/test/java/org/telegram/messenger/Utilities64.java](https://github.com/zhkl0228/emulator/blob/master/src/test/java/org/telegram/messenger/Utilities64.java)  
+![](assets/Utilities64.gif)
 
 ## Features
 - Emulation of the JNI Invocation API so JNI_OnLoad can be called.

@@ -4,9 +4,11 @@ import cn.banny.auxiliary.Inspector;
 import cn.banny.emulator.*;
 import cn.banny.emulator.arm.ARM;
 import cn.banny.emulator.arm.ARMEmulator;
+import cn.banny.emulator.file.FileIO;
 import cn.banny.emulator.linux.file.*;
 import cn.banny.emulator.memory.SvcMemory;
 import cn.banny.emulator.pointer.UnicornPointer;
+import cn.banny.emulator.spi.SyscallHandler;
 import com.sun.jna.Pointer;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.logging.Log;
@@ -50,7 +52,7 @@ public class ARM64SyscallHandler extends AbstractSyscallHandler implements Sysca
             if (svcNumber != 0) {
                 Svc svc = svcMemory.getSvc(svcNumber);
                 if (svc != null) {
-                    u.reg_write(Arm64Const.UC_ARM64_REG_X0, svc.handle(u, emulator));
+                    u.reg_write(Arm64Const.UC_ARM64_REG_X0, svc.handle(emulator));
                     return;
                 }
                 u.emu_stop();
@@ -690,7 +692,7 @@ public class ARM64SyscallHandler extends AbstractSyscallHandler implements Sysca
     }
 
     private int stat64(Emulator emulator, String pathname, Pointer statbuf) {
-        FileIO io = resolve(emulator.getWorkDir(), pathname, FileIO.O_RDONLY);
+        FileIO io = resolve(emulator, pathname, FileIO.O_RDONLY);
         if (io != null) {
             return io.fstat(emulator, emulator.getUnicorn(), statbuf);
         }
@@ -1458,7 +1460,7 @@ public class ARM64SyscallHandler extends AbstractSyscallHandler implements Sysca
     }
 
     private int faccessat(Emulator emulator, String pathname) {
-        FileIO io = resolve(emulator.getWorkDir(), pathname, FileIO.O_RDONLY);
+        FileIO io = resolve(emulator, pathname, FileIO.O_RDONLY);
         if (io != null) {
             return 0;
         }
@@ -1546,7 +1548,7 @@ public class ARM64SyscallHandler extends AbstractSyscallHandler implements Sysca
     public final int open(Emulator emulator, String pathname, int oflags) {
         int minFd = this.getMinFd();
 
-        FileIO io = resolve(emulator.getWorkDir(), pathname, oflags);
+        FileIO io = resolve(emulator, pathname, oflags);
         if (io != null) {
             this.fdMap.put(minFd, io);
             return minFd;

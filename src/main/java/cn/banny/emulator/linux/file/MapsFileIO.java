@@ -1,7 +1,9 @@
 package cn.banny.emulator.linux.file;
 
-import cn.banny.emulator.linux.MemRegion;
-import cn.banny.emulator.linux.Module;
+import cn.banny.emulator.Emulator;
+import cn.banny.emulator.Module;
+import cn.banny.emulator.file.FileIO;
+import cn.banny.emulator.memory.MemRegion;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import unicorn.UnicornConst;
@@ -49,7 +51,7 @@ public class MapsFileIO extends ByteArrayFileIO implements FileIO {
             for (int i = 0; i < 10; i++) {
                 builder.append(' ');
             }
-            builder.append(memRegion.name);
+            builder.append(memRegion.getName());
             builder.append('\n');
         }
         builder.append("ffff0000-ffff1000 r-xp 00000000 00:00 0          [vectors]");
@@ -60,4 +62,8 @@ public class MapsFileIO extends ByteArrayFileIO implements FileIO {
         return builder.toString().getBytes();
     }
 
+    @Override
+    public int ioctl(Emulator emulator, long request, long argp) {
+        return 0;
+    }
 }

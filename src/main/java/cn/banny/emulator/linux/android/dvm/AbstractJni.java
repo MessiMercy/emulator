@@ -1,7 +1,5 @@
 package cn.banny.emulator.linux.android.dvm;
 
-import cn.banny.emulator.Emulator;
-
 public abstract class AbstractJni implements Jni {
 
     @Override
@@ -16,6 +14,11 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public DvmObject getObjectField(VM vm, DvmObject dvmObject, String signature) {
+        throw new AbstractMethodError(signature);
+    }
+
+    @Override
+    public boolean callStaticBooleanMethod(String signature, VarArg varArg) {
         throw new AbstractMethodError(signature);
     }
 
@@ -35,7 +38,7 @@ public abstract class AbstractJni implements Jni {
     }
 
     @Override
-    public DvmObject callStaticObjectMethod(VM vm, DvmClass dvmClass, String signature, String methodName, String args, Emulator emulator) {
+    public DvmObject callStaticObjectMethod(VM vm, DvmClass dvmClass, String signature, String methodName, String args, VarArg varArg) {
         throw new AbstractMethodError(signature);
     }
 
@@ -80,7 +83,7 @@ public abstract class AbstractJni implements Jni {
     }
 
     @Override
-    public DvmObject newObject(DvmClass clazz, String signature, Emulator emulator) {
+    public DvmObject newObject(DvmClass clazz, String signature, VarArg varArg) {
         throw new AbstractMethodError(signature);
     }
 
@@ -101,6 +104,26 @@ public abstract class AbstractJni implements Jni {
 
     @Override
     public void setBooleanField(BaseVM vm, DvmObject dvmObject, String signature, boolean value) {
+        throw new AbstractMethodError(signature);
+    }
+
+    @Override
+    public DvmObject callObjectMethod(BaseVM vm, DvmObject dvmObject, String signature, String methodName, String args, VarArg varArg) {
+        throw new AbstractMethodError(signature);
+    }
+
+    @Override
+    public int callIntMethod(BaseVM vm, DvmObject dvmObject, String signature, String methodName, String args, VarArg varArg) {
+        throw new AbstractMethodError(signature);
+    }
+
+    @Override
+    public void callVoidMethod(BaseVM vm, DvmObject dvmObject, String signature, String methodName, String args, VarArg varArg) {
+        throw new AbstractMethodError(signature);
+    }
+
+    @Override
+    public void callVoidMethodV(BaseVM vm, DvmObject dvmObject, String signature, String methodName, String args, VaList vaList) {
         throw new AbstractMethodError(signature);
     }
 }

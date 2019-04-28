@@ -3,15 +3,15 @@ package cn.banny.emulator.arm;
 import capstone.Capstone;
 import cn.banny.auxiliary.Inspector;
 import cn.banny.emulator.Emulator;
-import cn.banny.emulator.memory.Memory;
+import cn.banny.emulator.Module;
+import cn.banny.emulator.Symbol;
 import cn.banny.emulator.debugger.DebugListener;
 import cn.banny.emulator.debugger.Debugger;
 import cn.banny.emulator.linux.android.AndroidARMEmulator;
-import cn.banny.emulator.linux.Module;
+import cn.banny.emulator.memory.Memory;
 import cn.banny.emulator.pointer.UnicornPointer;
 import cn.banny.utils.Hex;
 import com.sun.jna.Pointer;
-import net.fornwall.jelf.ElfSymbol;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import unicorn.Arm64Const;
@@ -32,11 +32,11 @@ public class SimpleARMDebugger implements Debugger {
     @Override
     public void addBreakPoint(Module module, String symbol) {
         try {
-            ElfSymbol elfSymbol = module.getELFSymbolByName(symbol);
-            if (elfSymbol == null) {
+            Symbol sym = module.findSymbolByName(symbol, false);
+            if (sym == null) {
                 throw new IllegalStateException("find symbol failed: " + symbol);
             }
-            addBreakPoint(module, elfSymbol.value);
+            addBreakPoint(module, sym.getValue());
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
@@ -44,7 +44,7 @@ public class SimpleARMDebugger implements Debugger {
 
     @Override
     public void addBreakPoint(Module module, long offset) {
-        long address = (module == null ? offset : module.base + offset);
+        long address = (module == null ? offset : module.base + offset) & (~1);
         if (log.isDebugEnabled()) {
             log.debug("addBreakPoint address=0x" + Long.toHexString(address));
         }
@@ -252,12 +252,15 @@ public class SimpleARMDebugger implements Debugger {
                 if (line.startsWith("b0x")) {
                     try {
                         long addr = Long.parseLong(line.substring(3), 16) & 0xFFFFFFFFFFFFFFFEL;
-                        Module module;
+                        Module module = null;
                         if (addr < Memory.MMAP_BASE && (module = emulator.getMemory().findModuleByAddress(address)) != null) {
                             addr += module.base;
                         }
                         breakMap.put(addr, null); // temp breakpoint
-                        System.out.println("Add breakpoint: 0x" + Long.toHexString(addr));
+                        if (module == null) {
+                            module = emulator.getMemory().findModuleByAddress(address);
+                        }
+                        System.out.println("Add breakpoint: 0x" + Long.toHexString(addr) + (module == null ? "" : (" in " + module.name + " [0x" + Long.toHexString(addr - module.base) + "]")));
                         continue;
                     } catch(NumberFormatException ignored) {
                     }
@@ -270,7 +273,8 @@ public class SimpleARMDebugger implements Debugger {
                         addr = ((Number) u.reg_read(Arm64Const.UC_ARM64_REG_LR)).longValue();
                     }
                     breakMap.put(addr, null);
-                    System.out.println("Add breakpoint: 0x" + Long.toHexString(addr));
+                    Module module = emulator.getMemory().findModuleByAddress(address);
+                    System.out.println("Add breakpoint: 0x" + Long.toHexString(addr) + (module == null ? "" : (" in " + module.name + " [0x" + Long.toHexString(addr - module.base) + "]")));
                     continue;
                 }
                 if ("r".equals(line)) {
@@ -282,7 +286,8 @@ public class SimpleARMDebugger implements Debugger {
                     }
                     if (breakMap.containsKey(addr)) {
                         breakMap.remove(addr);
-                        System.out.println("Remove breakpoint: 0x" + Long.toHexString(addr));
+                        Module module = emulator.getMemory().findModuleByAddress(address);
+                        System.out.println("Remove breakpoint: 0x" + Long.toHexString(addr) + (module == null ? "" : (" in " + module.name + " [0x" + Long.toHexString(addr - module.base) + "]")));
                     }
                     continue;
                 }
@@ -294,7 +299,8 @@ public class SimpleARMDebugger implements Debugger {
                         addr = ((Number) u.reg_read(Arm64Const.UC_ARM64_REG_PC)).longValue();
                     }
                     breakMap.put(addr, null);
-                    System.out.println("Add breakpoint: 0x" + Long.toHexString(addr));
+                    Module module = emulator.getMemory().findModuleByAddress(address);
+                    System.out.println("Add breakpoint: 0x" + Long.toHexString(addr) + (module == null ? "" : (" in " + module.name + " [0x" + Long.toHexString(addr - module.base) + "]")));
                     continue;
                 }
                 if ("c".equals(line)) { // continue

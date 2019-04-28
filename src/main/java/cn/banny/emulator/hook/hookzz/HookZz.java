@@ -1,35 +1,36 @@
 package cn.banny.emulator.hook.hookzz;
 
 import cn.banny.emulator.Emulator;
+import cn.banny.emulator.Module;
+import cn.banny.emulator.Symbol;
 import cn.banny.emulator.arm.Arm64Svc;
 import cn.banny.emulator.arm.ArmSvc;
 import cn.banny.emulator.hook.BaseHook;
 import cn.banny.emulator.hook.ReplaceCallback;
-import cn.banny.emulator.linux.Module;
-import cn.banny.emulator.linux.Symbol;
 import cn.banny.emulator.memory.SvcMemory;
 import com.sun.jna.Pointer;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import unicorn.Unicorn;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 public class HookZz extends BaseHook implements IHookZz {
 
     private static final Log log = LogFactory.getLog(HookZz.class);
 
-    private static HookZz instance;
-
     public static HookZz getInstance(Emulator emulator) {
-        if (instance == null) {
+        HookZz hookZz = emulator.get(HookZz.class.getName());
+        if (hookZz == null) {
             try {
-                instance = new HookZz(emulator);
+                hookZz = new HookZz(emulator);
+                emulator.set(HookZz.class.getName(), hookZz);
             } catch (IOException e) {
                 throw new IllegalStateException(e);
             }
         }
-        return instance;
+        return hookZz;
     }
 
     private final Symbol zz_enable_arm_arm64_b_branch, zz_disable_arm_arm64_b_branch;
@@ -40,11 +41,12 @@ public class HookZz extends BaseHook implements IHookZz {
     private HookZz(Emulator emulator) throws IOException {
         super(emulator);
 
-        Module module = emulator.getMemory().load(resolveLibrary(emulator, "libhookzz.so"));
-        zz_enable_arm_arm64_b_branch = module.findSymbolByName("zz_enable_arm_arm64_b_branch");
-        zz_disable_arm_arm64_b_branch = module.findSymbolByName("zz_disable_arm_arm64_b_branch");
-        zzReplace = module.findSymbolByName("ZzReplace");
-        zzWrap = module.findSymbolByName("ZzWrap");
+        boolean isIOS = ".dylib".equals(emulator.getLibraryExtension());
+        Module module = emulator.getMemory().load(resolveLibrary(emulator, "libhookzz"));
+        zz_enable_arm_arm64_b_branch = module.findSymbolByName(isIOS ? "_zz_enable_arm_arm64_b_branch" : "zz_enable_arm_arm64_b_branch");
+        zz_disable_arm_arm64_b_branch = module.findSymbolByName(isIOS ? "_zz_disable_arm_arm64_b_branch" : "zz_disable_arm_arm64_b_branch");
+        zzReplace = module.findSymbolByName(isIOS ? "_ZzReplace" : "ZzReplace");
+        zzWrap = module.findSymbolByName(isIOS ? "_ZzWrap" : "ZzWrap");
         log.debug("zzReplace=" + zzReplace + ", zzWrap=" + zzWrap);
 
         if (zz_enable_arm_arm64_b_branch == null) {
@@ -101,29 +103,32 @@ public class HookZz extends BaseHook implements IHookZz {
     @Override
     public <T extends RegisterContext> void wrap(long functionAddress, final WrapCallback<T> callback) {
         SvcMemory svcMemory = emulator.getSvcMemory();
+        final Map<String, Object> context = new HashMap<>();
         Pointer preCall = svcMemory.registerSvc(emulator.getPointerSize() == 4 ? new ArmSvc() {
             @Override
-            public int handle(Unicorn u, Emulator emulator) {
-                callback.preCall(u, (T) new Arm32RegisterContextImpl(emulator), new ArmHookEntryInfo(emulator));
+            public int handle(Emulator emulator) {
+                context.clear();
+                callback.preCall(emulator, (T) new Arm32RegisterContextImpl(emulator, context), new ArmHookEntryInfo(emulator));
                 return 0;
             }
         } : new Arm64Svc() {
             @Override
-            public int handle(Unicorn u, Emulator emulator) {
-                callback.preCall(u, (T) new Arm64RegisterContextImpl(emulator), new Arm64HookEntryInfo(emulator));
+            public int handle(Emulator emulator) {
+                context.clear();
+                callback.preCall(emulator, (T) new Arm64RegisterContextImpl(emulator, context), new Arm64HookEntryInfo(emulator));
                 return 0;
             }
         });
         Pointer postCall = svcMemory.registerSvc(emulator.getPointerSize() == 4 ? new ArmSvc() {
             @Override
-            public int handle(Unicorn u, Emulator emulator) {
-                callback.postCall(u, (T) new Arm32RegisterContextImpl(emulator), new ArmHookEntryInfo(emulator));
+            public int handle(Emulator emulator) {
+                callback.postCall(emulator, (T) new Arm32RegisterContextImpl(emulator, context), new ArmHookEntryInfo(emulator));
                 return 0;
             }
         } : new Arm64Svc() {
             @Override
-            public int handle(Unicorn u, Emulator emulator) {
-                callback.postCall(u, (T) new Arm64RegisterContextImpl(emulator), new Arm64HookEntryInfo(emulator));
+            public int handle(Emulator emulator) {
+                callback.postCall(emulator, (T) new Arm64RegisterContextImpl(emulator, context), new Arm64HookEntryInfo(emulator));
                 return 0;
             }
         });

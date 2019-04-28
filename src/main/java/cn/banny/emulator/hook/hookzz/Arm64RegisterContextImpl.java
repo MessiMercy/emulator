@@ -5,12 +5,15 @@ import cn.banny.emulator.pointer.UnicornPointer;
 import com.sun.jna.Pointer;
 import unicorn.Arm64Const;
 
-public class Arm64RegisterContextImpl implements Arm64RegisterContext {
+import java.util.Map;
+
+public class Arm64RegisterContextImpl extends RegisterContextImpl implements Arm64RegisterContext {
 
     private final Pointer reg_ctx;
     private final Emulator emulator;
 
-    Arm64RegisterContextImpl(Emulator emulator) {
+    Arm64RegisterContextImpl(Emulator emulator, final Map<String, Object> context) {
+        super(context);
         this.reg_ctx = UnicornPointer.register(emulator, Arm64Const.UC_ARM64_REG_X0).share(8); // skip dummy
         this.emulator = emulator;
     }
@@ -24,7 +27,7 @@ public class Arm64RegisterContextImpl implements Arm64RegisterContext {
     }
 
     @Override
-    public Pointer getXPointer(int index) {
+    public UnicornPointer getXPointer(int index) {
         return UnicornPointer.pointer(emulator, getX(index));
     }
 
@@ -34,7 +37,7 @@ public class Arm64RegisterContextImpl implements Arm64RegisterContext {
     }
 
     @Override
-    public Pointer getFpPointer() {
+    public UnicornPointer getFpPointer() {
         return UnicornPointer.pointer(emulator, getFp());
     }
 
@@ -44,7 +47,12 @@ public class Arm64RegisterContextImpl implements Arm64RegisterContext {
     }
 
     @Override
-    public Pointer getLrPointer() {
+    public UnicornPointer getLrPointer() {
         return UnicornPointer.pointer(emulator, getLr());
+    }
+
+    @Override
+    public UnicornPointer getStackPointer() {
+        return (UnicornPointer) reg_ctx.share(30 * 8 + 8 + 16 * 8);
     }
 }

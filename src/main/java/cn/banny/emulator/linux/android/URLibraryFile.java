@@ -1,7 +1,7 @@
 package cn.banny.emulator.linux.android;
 
 import cn.banny.emulator.Emulator;
-import cn.banny.emulator.LibraryFile;
+import cn.banny.emulator.spi.LibraryFile;
 import org.apache.commons.io.IOUtils;
 
 import java.io.IOException;
@@ -40,5 +40,10 @@ public class URLibraryFile implements LibraryFile {
     @Override
     public byte[] readToByteArray() throws IOException {
         return IOUtils.toByteArray(url);
+    }
+
+    @Override
+    public String getPath() {
+        return "/system/lib";
     }
 }

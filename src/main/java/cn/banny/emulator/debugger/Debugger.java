@@ -1,7 +1,7 @@
 package cn.banny.emulator.debugger;
 
 import cn.banny.emulator.Emulator;
-import cn.banny.emulator.linux.Module;
+import cn.banny.emulator.Module;
 import unicorn.CodeHook;
 
 public interface Debugger extends CodeHook {

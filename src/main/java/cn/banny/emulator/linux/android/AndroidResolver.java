@@ -1,8 +1,10 @@
 package cn.banny.emulator.linux.android;
 
 import cn.banny.emulator.Emulator;
-import cn.banny.emulator.LibraryFile;
+import cn.banny.emulator.spi.LibraryFile;
 import cn.banny.emulator.LibraryResolver;
+import cn.banny.emulator.file.FileIO;
+import cn.banny.emulator.file.IOResolver;
 import cn.banny.emulator.linux.IO;
 import cn.banny.emulator.linux.file.*;
 import org.apache.commons.io.FileUtils;
@@ -112,7 +114,7 @@ public class AndroidResolver implements LibraryResolver, IOResolver {
             return createFileIO(file, path, oflags);
         }
 
-        String androidResource = FilenameUtils.normalize("/android/sdk" + sdk + "/" + path);
+        String androidResource = FilenameUtils.normalize("/android/sdk" + sdk + "/" + path, true);
         InputStream inputStream = AndroidResolver.class.getResourceAsStream(androidResource);
         if (inputStream != null) {
             OutputStream outputStream = null;

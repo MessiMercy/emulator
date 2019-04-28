@@ -1,11 +1,17 @@
 package cn.banny.emulator.hook.hookzz;
 
-import com.sun.jna.Pointer;
+import cn.banny.emulator.spi.ValuePair;
+import cn.banny.emulator.pointer.UnicornPointer;
 
-public interface RegisterContext {
+public interface RegisterContext extends ValuePair {
 
     long getLr();
 
-    Pointer getLrPointer();
+    UnicornPointer getLrPointer();
+
+    /**
+     * SP
+     */
+    UnicornPointer getStackPointer();
 
 }

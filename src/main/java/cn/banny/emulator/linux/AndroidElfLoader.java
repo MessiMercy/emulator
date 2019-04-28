@@ -2,57 +2,42 @@ package cn.banny.emulator.linux;
 
 import cn.banny.auxiliary.Inspector;
 import cn.banny.emulator.*;
-import cn.banny.emulator.arm.ARM;
 import cn.banny.emulator.arm.ARMEmulator;
 import cn.banny.emulator.hook.HookListener;
 import cn.banny.emulator.linux.android.ElfLibraryFile;
-import cn.banny.emulator.linux.file.FileIO;
-import cn.banny.emulator.memory.Memory;
-import cn.banny.emulator.memory.MemoryBlock;
-import cn.banny.emulator.memory.MemoryBlockImpl;
+import cn.banny.emulator.memory.MemRegion;
+import cn.banny.emulator.memory.*;
 import cn.banny.emulator.pointer.UnicornPointer;
+import cn.banny.emulator.spi.AbstractLoader;
+import cn.banny.emulator.spi.InitFunction;
+import cn.banny.emulator.spi.LibraryFile;
+import cn.banny.emulator.spi.Loader;
 import com.sun.jna.Pointer;
 import net.fornwall.jelf.*;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
-import org.apache.commons.io.IOUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import unicorn.*;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-public class AndroidElfLoader implements Memory, Loader {
+public class AndroidElfLoader extends AbstractLoader implements Memory, Loader {
 
     private static final Log log = LogFactory.getLog(AndroidElfLoader.class);
 
-    private final Unicorn unicorn;
-    private final Emulator emulator;
-    private final AbstractSyscallHandler syscallHandler;
-    private LibraryResolver libraryResolver;
-
-    private long sp;
-
-    private long mmapBaseAddress;
-
     private Symbol malloc;
 
-    public AndroidElfLoader(Unicorn unicorn, Emulator emulator, AbstractSyscallHandler syscallHandler) {
-        this.unicorn = unicorn;
-        this.emulator = emulator;
-        this.syscallHandler = syscallHandler;
+    public AndroidElfLoader(Emulator emulator, AbstractSyscallHandler syscallHandler) {
+        super(emulator, syscallHandler);
 
         // init stack
         final long stackSize = STACK_SIZE_OF_PAGE * emulator.getPageAlign();
         unicorn.mem_map(STACK_BASE - stackSize, stackSize, UnicornConst.UC_PROT_READ | UnicornConst.UC_PROT_WRITE);
-
-        mmapBaseAddress = MMAP_BASE;
 
         setStackPoint(STACK_BASE);
         initializeTLS();
@@ -75,7 +60,7 @@ public class AndroidElfLoader implements Memory, Loader {
         if (thread != null) {
             if (thread.context == 0) {
                 log.info("run thread: fn=" + thread.fn + ", arg=" + thread.arg + ", child_stack=" + thread.child_stack);
-                Module.emulateFunction(emulator, __thread_entry, thread.fn, thread.arg, thread.child_stack);
+                LinuxModule.emulateFunction(emulator, __thread_entry, thread.fn, thread.arg, thread.child_stack);
             } else {
                 unicorn.context_restore(thread.context);
                 long pc = ((Number) unicorn.reg_read(emulator.getPointerSize() == 4 ? ArmConst.UC_ARM_REG_PC : Arm64Const.UC_ARM64_REG_PC)).intValue() & 0xffffffffL;
@@ -96,72 +81,6 @@ public class AndroidElfLoader implements Memory, Loader {
         File outFile = File.createTempFile("heap_0x" + Long.toHexString(HEAP_BASE) + "_", ".dat");
         dump(UnicornPointer.pointer(emulator, HEAP_BASE), brk - HEAP_BASE, outFile);
         return outFile;
-    }
-
-    @Override
-    public File dumpStack() throws IOException {
-        UnicornPointer sp = UnicornPointer.register(emulator, emulator.getPointerSize() == 4 ? ArmConst.UC_ARM_REG_SP : Arm64Const.UC_ARM64_REG_SP);
-        File outFile = File.createTempFile("stack_0x" + Long.toHexString(sp.peer) + "_", ".dat");
-        dump(sp, STACK_BASE - sp.peer, outFile);
-        return outFile;
-    }
-
-    private void dump(Pointer pointer, long size, File outFile) throws IOException {
-        FileOutputStream outputStream = null;
-        try {
-            outputStream = new FileOutputStream(outFile);
-
-            int dump = 0;
-            while (dump < size) {
-                long read = size - dump;
-                if (read > ARMEmulator.PAGE_ALIGN) {
-                    read = ARMEmulator.PAGE_ALIGN;
-                }
-                byte[] data = pointer.getByteArray(dump, (int) read);
-                outputStream.write(data);
-                dump += read;
-            }
-        } finally {
-            IOUtils.closeQuietly(outputStream);
-        }
-    }
-
-    @Override
-    public UnicornPointer allocateStack(int size) {
-        setStackPoint(sp - size);
-        UnicornPointer pointer = UnicornPointer.pointer(emulator, sp);
-        assert pointer != null;
-        return pointer.setSize(size);
-    }
-
-    @Override
-    public UnicornPointer writeStackString(String str) {
-        byte[] data = str.getBytes(StandardCharsets.UTF_8);
-        return writeStackBytes(Arrays.copyOf(data, data.length + 1));
-    }
-
-    @Override
-    public UnicornPointer writeStackBytes(byte[] data) {
-        int size = ARM.alignSize(data.length);
-        UnicornPointer pointer = allocateStack(size);
-        assert pointer != null;
-        pointer.write(0, data, 0, data.length);
-        return pointer;
-    }
-
-    @Override
-    public UnicornPointer pointer(long address) {
-        return UnicornPointer.pointer(emulator, address);
-    }
-
-    @Override
-    public void setStackPoint(long sp) {
-        this.sp = sp;
-        if (emulator.getPointerSize() == 4) {
-            unicorn.reg_write(ArmConst.UC_ARM_REG_SP, sp);
-        } else {
-            unicorn.reg_write(Arm64Const.UC_ARM64_REG_SP, sp);
-        }
     }
 
     private void initializeTLS() {
@@ -204,41 +123,7 @@ public class AndroidElfLoader implements Memory, Loader {
         log.debug("initializeTLS tls=" + tls + ", argv=" + argv + ", vector=" + vector + ", thread=" + thread + ", environ=" + environ);
     }
 
-    @Override
-    public void setLibraryResolver(LibraryResolver libraryResolver) {
-        this.libraryResolver = libraryResolver;
-
-        syscallHandler.addIOResolve(libraryResolver);
-
-        /*
-         * 注意打开顺序很重要
-         */
-        syscallHandler.open(emulator, STDIN, FileIO.O_RDONLY);
-        syscallHandler.open(emulator, STDOUT, FileIO.O_WRONLY);
-        syscallHandler.open(emulator, STDERR, FileIO.O_WRONLY);
-    }
-
-    private final Map<String, Module> modules = new LinkedHashMap<>();
-
-    @Override
-    public Module load(File elfFile) throws IOException {
-        return load(elfFile,false);
-    }
-
-    @Override
-    public Module load(File elfFile, boolean forceCallInit) throws IOException {
-        return loadInternal(new ElfLibraryFile(elfFile), null, forceCallInit);
-    }
-
-    @Override
-    public Module load(LibraryFile libraryFile) throws IOException {
-        return load(libraryFile, false);
-    }
-
-    @Override
-    public Module load(LibraryFile libraryFile, boolean forceCallInit) throws IOException {
-        return loadInternal(libraryFile, null, forceCallInit);
-    }
+    private final Map<String, LinuxModule> modules = new LinkedHashMap<>();
 
     @Override
     public byte[] unpack(File elfFile) throws IOException {
@@ -256,12 +141,12 @@ public class AndroidElfLoader implements Memory, Loader {
         return fileData;
     }
 
-    private Module loadInternal(LibraryFile libraryFile, WriteHook unpackHook, boolean forceCallInit) throws IOException {
-        Module module = loadInternal(libraryFile, unpackHook);
+    protected final LinuxModule loadInternal(LibraryFile libraryFile, WriteHook unpackHook, boolean forceCallInit) throws IOException {
+        LinuxModule module = loadInternal(libraryFile, unpackHook);
         resolveSymbols();
         if (callInitFunction || forceCallInit) {
-            for (Module m : modules.values().toArray(new Module[0])) {
-                boolean forceCall = forceCallInit && m == module;
+            for (LinuxModule m : modules.values().toArray(new LinuxModule[0])) {
+                boolean forceCall = (forceCallInit && m == module) || m.isForceCallInit();
                 if (callInitFunction) {
                     m.callInitFunction(emulator, forceCall);
                 } else if(forceCall) {
@@ -275,10 +160,10 @@ public class AndroidElfLoader implements Memory, Loader {
     }
 
     private void resolveSymbols() throws IOException {
-        for (Module m : modules.values()) {
+        for (LinuxModule m : modules.values()) {
             for (Iterator<ModuleSymbol> iterator = m.getUnresolvedSymbol().iterator(); iterator.hasNext(); ) {
                 ModuleSymbol moduleSymbol = iterator.next();
-                ModuleSymbol resolved = moduleSymbol.resolve(modules.values(), true, hookListeners, emulator.getSvcMemory());
+                ModuleSymbol resolved = moduleSymbol.resolve(new HashSet<Module>(modules.values()), true, hookListeners, emulator.getSvcMemory());
                 if (resolved != null) {
                     log.debug("[" + moduleSymbol.soName + "]" + moduleSymbol.symbol.getName() + " symbol resolved to " + resolved.toSoName);
                     resolved.relocation(emulator);
@@ -290,19 +175,21 @@ public class AndroidElfLoader implements Memory, Loader {
         }
     }
 
-    private ModuleListener moduleListener;
-
-    @Override
-    public void setModuleListener(ModuleListener listener) {
-        moduleListener = listener;
-    }
-
     @Override
     public Module dlopen(String filename, boolean calInit) throws IOException {
-        Module loaded = modules.get(FilenameUtils.getName(filename));
+        LinuxModule loaded = modules.get(FilenameUtils.getName(filename));
         if (loaded != null) {
             loaded.addReferenceCount();
             return loaded;
+        }
+
+        for (Module module : getLoadedModules()) {
+            for (cn.banny.emulator.memory.MemRegion memRegion : module.getRegions()) {
+                if (filename.equals(memRegion.getName())) {
+                    module.addReferenceCount();
+                    return module;
+                }
+            }
         }
 
         LibraryFile file = libraryResolver == null ? null : libraryResolver.resolveLibrary(emulator, filename);
@@ -314,10 +201,10 @@ public class AndroidElfLoader implements Memory, Loader {
             return loadInternal(file, null, false);
         }
 
-        Module module = loadInternal(file, null);
+        LinuxModule module = loadInternal(file, null);
         resolveSymbols();
         if (!callInitFunction) { // No need call init array
-            for (Module m : modules.values()) {
+            for (LinuxModule m : modules.values()) {
                 m.initFunctionList.clear();
             }
         }
@@ -334,14 +221,14 @@ public class AndroidElfLoader implements Memory, Loader {
     }
 
     @Override
-    public Symbol dlsym(long handle, String symbol) throws IOException {
-        for (Module module : modules.values()) {
+    public LinuxSymbol dlsym(long handle, String symbol) throws IOException {
+        for (LinuxModule module : modules.values()) {
             if (module.base == handle) {
                 ElfSymbol elfSymbol = module.getELFSymbolByName(symbol);
                 if (elfSymbol == null) {
                     return null;
                 } else {
-                    return new Symbol(module, elfSymbol);
+                    return new LinuxSymbol(module, elfSymbol);
                 }
             }
         }
@@ -350,8 +237,8 @@ public class AndroidElfLoader implements Memory, Loader {
 
     @Override
     public boolean dlclose(long handle) {
-        for (Iterator<Map.Entry<String, Module>> iterator = modules.entrySet().iterator(); iterator.hasNext(); ) {
-            Module module = iterator.next().getValue();
+        for (Iterator<Map.Entry<String, LinuxModule>> iterator = modules.entrySet().iterator(); iterator.hasNext(); ) {
+            LinuxModule module = iterator.next().getValue();
             if (module.base == handle) {
                 if (module.decrementReferenceCount() <= 0) {
                     module.unload(unicorn);
@@ -363,7 +250,7 @@ public class AndroidElfLoader implements Memory, Loader {
         return false;
     }
 
-    private Module loadInternal(LibraryFile libraryFile, final WriteHook unpackHook) throws IOException {
+    private LinuxModule loadInternal(LibraryFile libraryFile, final WriteHook unpackHook) throws IOException {
         final ElfFile elfFile = ElfFile.fromBytes(libraryFile.readToByteArray());
 
         if (emulator.getPointerSize() == 4 && elfFile.objectSize != ElfFile.CLASS_32) {
@@ -386,15 +273,10 @@ public class AndroidElfLoader implements Memory, Loader {
         }
 
         long start = System.currentTimeMillis();
-        long bound_low = 0;
         long bound_high = 0;
         for (int i = 0; i < elfFile.num_ph; i++) {
             ElfSegment ph = elfFile.getProgramHeader(i);
             if (ph.type == ElfSegment.PT_LOAD && ph.mem_size > 0) {
-                if (bound_low > ph.virtual_address) {
-                    bound_low = ph.virtual_address;
-                }
-
                 long high = ph.virtual_address + ph.mem_size;
 
                 if (bound_high < high) {
@@ -407,10 +289,10 @@ public class AndroidElfLoader implements Memory, Loader {
 
         final long baseAlign = emulator.getPageAlign();
         final long load_base = ((mmapBaseAddress - 1) / baseAlign + 1) * baseAlign;
-        long size = emulator.align(0, bound_high - bound_low).size;
+        long size = emulator.align(0, bound_high).size;
         mmapBaseAddress = load_base + size;
 
-        final List<MemRegion> regions = new ArrayList<>(5);
+        final List<cn.banny.emulator.memory.MemRegion> regions = new ArrayList<>(5);
         for (int i = 0; i < elfFile.num_ph; i++) {
             ElfSegment ph = elfFile.getProgramHeader(i);
             switch (ph.type) {
@@ -425,7 +307,7 @@ public class AndroidElfLoader implements Memory, Loader {
                     Alignment alignment = this.mem_map(begin, ph.mem_size, prot, libraryFile.getName());
                     unicorn.mem_write(begin, ph.getPtLoadData());
 
-                    regions.add(new MemRegion(alignment.address, alignment.address + alignment.size, prot, libraryFile.getMapRegionName(), ph.virtual_address));
+                    regions.add(new MemRegion(alignment.address, alignment.address + alignment.size, prot, libraryFile, ph.virtual_address));
 
                     if (unpackHook != null && (prot & UnicornConst.UC_PROT_EXEC) != 0) { // unpack executable code
                         unicorn.hook_add(new WriteHook() {
@@ -460,7 +342,7 @@ public class AndroidElfLoader implements Memory, Loader {
         for (String neededLibrary : dynamicStructure.getNeededLibraries()) {
             log.debug(soName + " need dependency " + neededLibrary);
 
-            Module loaded = modules.get(neededLibrary);
+            LinuxModule loaded = modules.get(neededLibrary);
             if (loaded != null) {
                 loaded.addReferenceCount();
                 neededLibraries.put(FilenameUtils.getBaseName(loaded.name), loaded);
@@ -471,7 +353,7 @@ public class AndroidElfLoader implements Memory, Loader {
                 neededLibraryFile = libraryResolver.resolveLibrary(emulator, neededLibrary);
             }
             if (neededLibraryFile != null) {
-                Module needed = loadInternal(neededLibraryFile, null);
+                LinuxModule needed = loadInternal(neededLibraryFile, null);
                 needed.addReferenceCount();
                 neededLibraries.put(FilenameUtils.getBaseName(needed.name), needed);
             } else {
@@ -479,7 +361,7 @@ public class AndroidElfLoader implements Memory, Loader {
             }
         }
 
-        for (Module module : modules.values()) {
+        for (LinuxModule module : modules.values()) {
             for (Iterator<ModuleSymbol> iterator = module.getUnresolvedSymbol().iterator(); iterator.hasNext(); ) {
                 ModuleSymbol moduleSymbol = iterator.next();
                 ModuleSymbol resolved = moduleSymbol.resolve(module.getNeededLibraries(), false, hookListeners, emulator.getSvcMemory());
@@ -505,7 +387,7 @@ public class AndroidElfLoader implements Memory, Loader {
             assert relocationAddr != null;
 
             if (relocation.isAndroid()) {
-                Log log = LogFactory.getLog(soName);
+                Log log = LogFactory.getLog("cn.banny.emulator.linux." + soName);
                 log.debug("symbol=" + symbol + ", type=" + type + ", relocationAddr=" + relocationAddr + ", offset=0x" + Long.toHexString(relocation.offset()) + ", addend=" + relocation.addend());
             }
 
@@ -589,14 +471,14 @@ public class AndroidElfLoader implements Memory, Loader {
             ElfInitArray preInitArray = dynamicStructure.getPreInitArray();
             ElfInitArray initArray = dynamicStructure.getInitArray();
 
-            initFunctionList.add(new InitFunction(load_base, soName, init));
+            initFunctionList.add(new LinuxInitFunction(load_base, soName, init));
 
             if (preInitArray != null) {
-                initFunctionList.add(new InitFunction(load_base, soName, preInitArray));
+                initFunctionList.add(new LinuxInitFunction(load_base, soName, preInitArray));
             }
 
             if (initArray != null) {
-                initFunctionList.add(new InitFunction(load_base, soName, initArray));
+                initFunctionList.add(new LinuxInitFunction(load_base, soName, initArray));
             }
         }
 
@@ -604,14 +486,8 @@ public class AndroidElfLoader implements Memory, Loader {
         if (dynsym == null) {
             throw new IllegalStateException("dynsym is null");
         }
-        Module module = new Module(load_base, bound_high - bound_low, soName, dynsym, list, initFunctionList, neededLibraries, regions);
+        LinuxModule module = new LinuxModule(load_base, bound_high, soName, dynsym, list, initFunctionList, neededLibraries, regions);
         if ("libc.so".equals(soName)) { // libc
-            /*ElfSymbol __bionic_brk = module.getELFSymbolByName("__bionic_brk");
-            if (__bionic_brk != null) {
-                unicorn.mem_write(module.base + __bionic_brk.value, ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt((int) HEAP_BASE).array());
-                brk = HEAP_BASE;
-            }*/
-
             ElfSymbol __thread_entry = module.getELFSymbolByName("__thread_entry");
             if (__thread_entry != null) {
                 this.__thread_entry = module.base + __thread_entry.value;
@@ -624,8 +500,8 @@ public class AndroidElfLoader implements Memory, Loader {
         if (maxSoName == null || soName.length() > maxSoName.length()) {
             maxSoName = soName;
         }
-        if (bound_high - bound_low > maxSizeOfSo) {
-            maxSizeOfSo = bound_high - bound_low;
+        if (bound_high > maxSizeOfSo) {
+            maxSizeOfSo = bound_high;
         }
         module.setEntryPoint(elfFile.entry_point);
         log.debug("Load library " + soName + " offset=" + (System.currentTimeMillis() - start) + "ms" + ", entry_point=0x" + Long.toHexString(elfFile.entry_point));
@@ -639,33 +515,6 @@ public class AndroidElfLoader implements Memory, Loader {
 
     private String maxSoName;
     private long maxSizeOfSo;
-
-    private boolean callInitFunction;
-
-    @Override
-    public void setCallInitFunction() {
-        this.callInitFunction = true;
-    }
-
-    @Override
-    public Module findModuleByAddress(long address) {
-        for (Module module : modules.values()) {
-            if (address >= module.base && address < module.base + module.size) {
-                return module;
-            }
-        }
-        return null;
-    }
-
-    @Override
-    public Module findModule(String soName) {
-        for (Module module : modules.values()) {
-            if (module.name.equals(soName)) {
-                return module;
-            }
-        }
-        return null;
-    }
 
     private ModuleSymbol resolveSymbol(long load_base, ElfSymbol symbol, Pointer relocationAddr, String soName, Collection<Module> neededLibraries, long offset) throws IOException {
         if (symbol == null) {
@@ -685,16 +534,6 @@ public class AndroidElfLoader implements Memory, Loader {
         return new ModuleSymbol(soName, load_base, symbol, relocationAddr, null, offset).resolve(neededLibraries, false, hookListeners, emulator.getSvcMemory());
     }
 
-    private Alignment mem_map(long address, long size, int prot, String libraryName) {
-        Alignment alignment = emulator.align(address, size);
-
-        log.debug("[" + libraryName + "]0x" + Long.toHexString(alignment.address) + " - 0x" + Long.toHexString(alignment.address + alignment.size) + ", size=0x" + Long.toHexString(alignment.size));
-
-        unicorn.mem_map(alignment.address, alignment.size, prot);
-        memoryMap.put(alignment.address, (int) alignment.size);
-        return alignment;
-    }
-
     private int get_segment_protection(int flags) {
         int prot = Unicorn.UC_PROT_NONE;
         if ((flags & /* PF_R= */4) != 0) prot |= Unicorn.UC_PROT_READ;
@@ -703,155 +542,13 @@ public class AndroidElfLoader implements Memory, Loader {
         return prot;
     }
 
-//    private static final int MAP_SHARED =	0x01;		/* Share changes */
-//    private static final int MAP_PRIVATE =	0x02;		/* Changes are private */
-//    private static final int MAP_TYPE =	0x0f;		/* Mask for type of mapping */
-//    private static final int MAP_FIXED =	0x10;		/* Interpret addr exactly */
-//    private static final int MAP_ANONYMOUS =	0x20;		/* don't use a file */
-
-    private final Map<Long, Integer> memoryMap = new TreeMap<>();
-
-    private long allocateMapAddress(int length) {
-        Map.Entry<Long, Integer> lastEntry = null;
-        for (Map.Entry<Long, Integer> entry : memoryMap.entrySet()) {
-            if (lastEntry == null) {
-                lastEntry = entry;
-            } else {
-                long mmapAddress = lastEntry.getKey() + lastEntry.getValue();
-                if (mmapAddress + length <= entry.getKey()) {
-                    return mmapAddress;
-                } else {
-                    lastEntry = entry;
-                }
-            }
-        }
-        if (lastEntry != null) {
-            long mmapAddress = lastEntry.getKey() + lastEntry.getValue();
-            if (mmapAddress < mmapBaseAddress) {
-                log.debug("allocateMapAddress mmapBaseAddress=0x" + Long.toHexString(mmapBaseAddress) + ", mmapAddress=0x" + Long.toHexString(mmapAddress));
-                mmapBaseAddress = mmapAddress;
-            }
-        }
-
-        long addr = mmapBaseAddress;
-        mmapBaseAddress += length;
-        return addr;
-    }
-
-    @Override
-    public MemoryBlock malloc(int length) {
-        return malloc(length, true);
-    }
-
     @Override
     public MemoryBlock malloc(int length, boolean runtime) {
         if (runtime) {
             return MemoryBlockImpl.alloc(this, length);
+        } else {
+            return MemoryAllocBlock.malloc(emulator, malloc, length);
         }
-
-        long address = malloc.call(emulator, length)[0].intValue() & 0xffffffffL;
-        final UnicornPointer pointer = UnicornPointer.pointer(emulator, address);
-        assert pointer != null;
-        return new MemoryBlock() {
-            @Override
-            public UnicornPointer getPointer() {
-                return pointer;
-            }
-            @Override
-            public boolean isSame(Pointer p) {
-                return pointer.equals(p);
-            }
-            @Override
-            public void free() {
-                throw new UnsupportedOperationException();
-            }
-        };
-    }
-
-    @Override
-    public UnicornPointer mmap(int length, int prot) {
-        int aligned = (int) ARM.alignSize(length, emulator.getPageAlign());
-        UnicornPointer pointer = UnicornPointer.pointer(emulator, mmap2(0, aligned, prot, 0, -1, 0) & 0xffffffffL);
-        assert pointer != null;
-        return pointer.setSize(aligned);
-    }
-
-    private static final int MAP_ANONYMOUS = 0x20;
-
-    @Override
-    public int mmap2(long start, int length, int prot, int flags, int fd, int offset) {
-        int aligned = (int) ARM.alignSize(length, emulator.getPageAlign());
-
-        if (((flags & MAP_ANONYMOUS) != 0) || (start == 0 && fd == -1 && offset == 0)) {
-            long addr = allocateMapAddress(aligned);
-            log.debug("mmap2 addr=0x" + Long.toHexString(addr) + ", mmapBaseAddress=0x" + Long.toHexString(mmapBaseAddress) + ", start=" + start + ", fd=" + fd + ", offset=" + offset + ", aligned=" + aligned);
-            unicorn.mem_map(addr, aligned, prot);
-            memoryMap.put(addr, aligned);
-            return (int) addr;
-        }
-        try {
-            FileIO file;
-            if (start == 0 && fd >= 0 && (file = syscallHandler.fdMap.get(fd)) != null) {
-                long addr = allocateMapAddress(aligned);
-                log.debug("mmap2 addr=0x" + Long.toHexString(addr) + ", mmapBaseAddress=0x" + Long.toHexString(mmapBaseAddress));
-                return file.mmap2(unicorn, addr, aligned, prot, offset, length, memoryMap);
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
-
-        throw new AbstractMethodError("mmap2 start=0x" + Long.toHexString(start) + ", length=" + length + ", prot=0x" + Integer.toHexString(prot) + ", flags=0x" + Integer.toHexString(flags) + ", fd=" + fd + ", offset=" + offset);
-    }
-
-    @Override
-    public int munmap(long start, int length) {
-        int aligned = (int) ARM.alignSize(length, emulator.getPageAlign());
-        unicorn.mem_unmap(start, aligned);
-        Integer removed = memoryMap.remove(start);
-
-        if (removed == null) {
-            Map.Entry<Long, Integer> segment = null;
-            for (Map.Entry<Long, Integer> entry : memoryMap.entrySet()) {
-                if (start > entry.getKey() && start < entry.getKey() + entry.getValue()) {
-                    segment = entry;
-                    break;
-                }
-            }
-            if (segment == null || segment.getValue() < aligned) {
-                throw new IllegalStateException("munmap aligned=0x" + Long.toHexString(aligned) + ", start=0x" + Long.toHexString(start));
-            }
-
-            memoryMap.put(segment.getKey(), (int) (start - segment.getKey()));
-            log.debug("munmap aligned=0x" + Long.toHexString(aligned) + ", start=0x" + Long.toHexString(start) + ", base=0x" + Long.toHexString(segment.getKey()) + ", size=" + (start - segment.getKey()));
-            if (start + aligned < segment.getKey() + segment.getValue()) {
-                log.debug("munmap aligned=0x" + Long.toHexString(aligned) + ", start=0x" + Long.toHexString(start) + ", base=0x" + Long.toHexString(start + aligned) + ", size=" + (segment.getKey() + segment.getValue() - start - aligned));
-                memoryMap.put(start + aligned, (int) (segment.getKey() + segment.getValue() - start - aligned));
-            }
-
-            return 0;
-        }
-
-        if(removed != aligned) {
-            if (aligned >= removed) {
-                throw new IllegalStateException("munmap removed=0x" + Long.toHexString(removed) + ", aligned=0x" + Long.toHexString(aligned) + ", start=0x" + Long.toHexString(start));
-            }
-
-            memoryMap.put(start + aligned, removed - aligned);
-            log.debug("munmap removed=0x" + Long.toHexString(removed) + ", aligned=0x" + Long.toHexString(aligned) + ", base=0x" + Long.toHexString(start + aligned) + ", size=" + (removed - aligned));
-            return 0;
-        }
-        return 0;
-    }
-
-    @Override
-    public int mprotect(long address, int length, int prot) {
-        if (address % ARMEmulator.PAGE_ALIGN != 0) {
-            setErrno(LinuxEmulator.EINVAL);
-            return -1;
-        }
-
-        unicorn.mem_protect(address, length, prot);
-        return 0;
     }
 
     private long brk;
@@ -897,13 +594,6 @@ public class AndroidElfLoader implements Memory, Loader {
 
     @Override
     public Collection<Module> getLoadedModules() {
-        return modules.values();
-    }
-
-    private final List<HookListener> hookListeners = new ArrayList<>();
-
-    @Override
-    public void addHookListener(HookListener listener) {
-        hookListeners.add(listener);
+        return new HashSet<Module>(modules.values());
     }
 }

@@ -1,6 +1,7 @@
 package cn.banny.emulator.linux;
 
 import cn.banny.emulator.Emulator;
+import cn.banny.emulator.Module;
 import cn.banny.emulator.arm.ArmHook;
 import cn.banny.emulator.arm.HookStatus;
 import cn.banny.emulator.memory.SvcMemory;
@@ -35,7 +36,8 @@ public class ModuleSymbol {
 
     ModuleSymbol resolve(Collection<Module> modules, boolean resolveWeak, List<HookListener> listeners, SvcMemory svcMemory) throws IOException {
         final String symbolName = symbol.getName();
-        for (Module module : modules) {
+        for (Module m : modules) {
+            LinuxModule module = (LinuxModule) m;
             Long symbolHook = module.hookMap.get(symbolName);
             if (symbolHook != null) {
                 return new ModuleSymbol(soName, WEAK_BASE, symbol, relocationAddr, module.name, symbolHook);

@@ -1,12 +1,13 @@
 package cn.banny.emulator;
 
+import cn.banny.emulator.arm.Arguments;
 import cn.banny.emulator.debugger.Debugger;
-import cn.banny.emulator.linux.android.dvm.DalvikVM;
-import cn.banny.emulator.linux.android.dvm.DalvikVM64;
-import cn.banny.emulator.linux.android.dvm.VM;
+import cn.banny.emulator.memory.Memory;
 import cn.banny.emulator.memory.MemoryBlock;
 import cn.banny.emulator.memory.MemoryBlockImpl;
+import cn.banny.emulator.memory.SvcMemory;
 import cn.banny.emulator.pointer.UnicornPointer;
+import cn.banny.emulator.spi.Dlfcn;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -15,10 +16,7 @@ import unicorn.*;
 import java.io.File;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -52,6 +50,12 @@ public abstract class AbstractEmulator implements Emulator {
         String pid = name.split("@")[0];
         this.pid = Integer.parseInt(pid);
     }
+
+    protected  abstract Memory createMemory(AbstractSyscallHandler syscallHandler);
+
+    protected abstract Dlfcn createDyld(SvcMemory svcMemory);
+
+    protected abstract AbstractSyscallHandler createSyscallHandler(SvcMemory svcMemory);
 
     @Override
     public void runAsm(String... asm) {
@@ -207,7 +211,7 @@ public abstract class AbstractEmulator implements Emulator {
         try {
             closeInternal();
 
-            unicorn.close();
+            // unicorn.close(); // May cause crash
         } finally {
             closed = true;
         }
@@ -251,8 +255,24 @@ public abstract class AbstractEmulator implements Emulator {
         return workDir;
     }
 
-    @Override
-    public VM createDalvikVM(File apkFile) {
-        return getPointerSize() == 4 ? new DalvikVM(this, apkFile) : new DalvikVM64(this, apkFile);
+    protected final Number[] eFunc(long begin, Arguments args, long lr, boolean entry) {
+        final List<Number> numbers = new ArrayList<>(10);
+        numbers.add(emulate(begin, lr, timeout, entry));
+        numbers.addAll(args.pointers);
+        return numbers.toArray(new Number[0]);
     }
+
+    private final Map<String, Object> context = new HashMap<>();
+
+    @Override
+    public void set(String key, Object value) {
+        context.put(key, value);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T> T get(String key) {
+        return (T) context.get(key);
+    }
+
 }

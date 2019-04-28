@@ -1,5 +1,8 @@
 package cn.banny.emulator.linux.file;
 
+import cn.banny.emulator.Emulator;
+import cn.banny.emulator.file.AbstractFileIO;
+import cn.banny.emulator.file.FileIO;
 import com.sun.jna.Pointer;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -185,5 +188,10 @@ public abstract class SocketIO extends AbstractFileIO implements FileIO {
         }
 
         return super.sendto(data, flags, dest_addr, addrlen);
+    }
+
+    @Override
+    public int fstat(Emulator emulator, Unicorn unicorn, Pointer stat) {
+        return 0;
     }
 }
